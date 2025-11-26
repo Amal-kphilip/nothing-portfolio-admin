@@ -134,15 +134,23 @@ const handleLogin = async (e) => {
     } catch (err) { console.error(err); }
   };
 
-  const saveHeroImage = async () => {
+const saveHeroImage = async () => {
     if (!heroPreview) return;
     setHeroLoading(true);
     try {
-      const { error } = await supabase.from('site_config').upsert({ key: 'hero_image', value: heroPreview });
+      const { error } = await supabase
+        .from('site_config')
+        .upsert({ key: 'hero_image', value: heroPreview });
+      
       if (error) throw error;
-      alert("System Identity Updated");
-    } catch (error) { alert("Update Failed"); } 
-    finally { setHeroLoading(false); }
+      alert("System Identity Updated Successfully!");
+    } catch (error) {
+      console.error(error);
+      // THIS WILL SHOW YOU THE REAL REASON:
+      alert("Error: " + (error.message || error.error_description || "Unknown error")); 
+    } finally {
+      setHeroLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
