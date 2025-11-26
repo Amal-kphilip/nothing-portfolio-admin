@@ -11,7 +11,8 @@
     "@supabase/supabase-js": "^2.38.0",
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-easy-crop": "^5.5.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.1.0",

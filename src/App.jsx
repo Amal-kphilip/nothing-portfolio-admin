@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Loader2, Lock, Upload, Image as ImageIcon, Cpu, X, Edit, Trash2, RotateCcw } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import Cropper from 'react-easy-crop'; // <--- NEW IMPORT
+import { Loader2, Lock, Upload, Image as ImageIcon, Cpu, X, Edit, Trash2, RotateCcw, Check, ZoomIn } from "lucide-react";
 import { createClient } from '@supabase/supabase-js'
 
 // --- SUPABASE CONFIG ---
@@ -7,7 +8,53 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_KEY
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// --- UTILS ---
+// --- UTILS: IMAGE PROCESSING & CROPPING ---
+
+// 1. Load Image Helper
+const createImage = (url) =>
+  new Promise((resolve, reject) => {
+    const image = new Image()
+    image.addEventListener('load', () => resolve(image))
+    image.addEventListener('error', (error) => reject(error))
+    image.setAttribute('crossOrigin', 'anonymous') 
+    image.src = url
+  })
+
+// 2. The Crop Function (Canvas Logic)
+async function getCroppedImg(imageSrc, pixelCrop) {
+  const image = await createImage(imageSrc)
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    return null
+  }
+
+  // Set canvas size to match the bounding box
+  canvas.width = image.width
+  canvas.height = image.height
+
+  ctx.drawImage(image, 0, 0)
+
+  // Extract the cropped area
+  const data = ctx.getImageData(
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height
+  )
+
+  // Create a final canvas for the cropped image
+  canvas.width = pixelCrop.width
+  canvas.height = pixelCrop.height
+
+  ctx.putImageData(data, 0, 0)
+
+  // Return as Base64 string (0.7 quality JPEG)
+  return canvas.toDataURL('image/jpeg', 0.7)
+}
+
+// 3. Standard Compressor (For Projects)
 const processImage = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -23,8 +70,7 @@ const processImage = (file) => {
         canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7); 
-        resolve(dataUrl);
+        resolve(canvas.toDataURL('image/jpeg', 0.7));
       };
       img.onerror = (err) => reject(err);
     };
@@ -43,6 +89,23 @@ const GlobalStyles = () => (
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: #D71921; }
+    
+    /* Range Slider Styling */
+    input[type=range] {
+      -webkit-appearance: none; 
+      background: transparent; 
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 16px; width: 16px;
+      border-radius: 50%;
+      background: #D71921;
+      margin-top: -6px;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%; height: 4px;
+      background: #333; border-radius: 2px;
+    }
   `}</style>
 );
 
@@ -61,17 +124,19 @@ export default function AdminApp() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
 
-  // Hero Image State
+  // Hero Image & Cropping State
   const [heroPreview, setHeroPreview] = useState('');
   const [heroLoading, setHeroLoading] = useState(false);
+  
+  // --- CROPPER STATES ---
+  const [rawHeroFile, setRawHeroFile] = useState(null); // The file before cropping
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
 
-  // 1. Check if logged in (from Supabase Session or Local Password)
-  useEffect(() => {
-     checkSession();
-  }, []);
+  useEffect(() => { checkSession(); }, []);
 
   const checkSession = async () => {
-    // Check if session exists (if you used Supabase Auth)
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       setIsAuthenticated(true);
@@ -90,13 +155,13 @@ export default function AdminApp() {
     if (data) setHeroPreview(data.value);
   };
 
-const handleLogin = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-
+    
+    // REPLACE WITH YOUR ACTUAL EMAIL
     const adminEmail = "amalkphilip2005@gmail.com"; 
 
-    // This logs you into the Database properly
     const { error } = await supabase.auth.signInWithPassword({
       email: adminEmail,
       password: passwordInput,
@@ -120,21 +185,52 @@ const handleLogin = async (e) => {
     setPasswordInput("");
   };
 
+  // --- FILE SELECTION HANDLER ---
   const handleImageSelect = async (e, type) => {
     const file = e.target.files[0];
     if (!file) return;
-    try {
-      const processedBase64 = await processImage(file);
-      if (type === 'project') {
+
+    if (type === 'project') {
+      // Standard upload for projects (no crop)
+      try {
+        const processedBase64 = await processImage(file);
         setPreviewUrl(URL.createObjectURL(file));
         setSelectedImage(processedBase64);
-      } else {
-        setHeroPreview(processedBase64);
-      }
-    } catch (err) { console.error(err); }
+      } catch (err) { console.error(err); }
+    } else {
+      // Trigger Crop Mode for Hero
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        setRawHeroFile(reader.result); // Opens the cropper modal
+        setZoom(1);
+        setCrop({ x: 0, y: 0 });
+      };
+    }
   };
 
-const saveHeroImage = async () => {
+  // --- CROP ACTIONS ---
+  const onCropComplete = useCallback((croppedArea, croppedAreaPixels) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const applyCrop = async () => {
+    try {
+      const croppedImage = await getCroppedImg(rawHeroFile, croppedAreaPixels);
+      setHeroPreview(croppedImage); // Set the final preview
+      setRawHeroFile(null); // Close cropper
+    } catch (e) {
+      console.error(e);
+      alert("Cropping failed");
+    }
+  };
+
+  const cancelCrop = () => {
+    setRawHeroFile(null);
+  };
+
+  // --- SAVE TO DB ---
+  const saveHeroImage = async () => {
     if (!heroPreview) return;
     setHeroLoading(true);
     try {
@@ -146,21 +242,18 @@ const saveHeroImage = async () => {
       alert("System Identity Updated Successfully!");
     } catch (error) {
       console.error(error);
-      // THIS WILL SHOW YOU THE REAL REASON:
-      alert("Error: " + (error.message || error.error_description || "Unknown error")); 
+      alert("Error: " + (error.message || "Unknown error"));
     } finally {
       setHeroLoading(false);
     }
   };
 
+  // ... (Rest of Project Handlers: handleSubmit, resetForm, etc. - kept same) ...
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const projectData = {
-        ...newProject,
-        tags: newProject.tags.split(',').map(t => t.trim()).filter(Boolean),
-      };
+      const projectData = { ...newProject, tags: newProject.tags.split(',').map(t => t.trim()).filter(Boolean) };
       if (selectedImage) projectData.image_url = selectedImage;
       else if (!editingId) projectData.image_url = ''; 
 
@@ -254,10 +347,51 @@ const saveHeroImage = async () => {
         </div>
 
         {/* CONTENT */}
-        <div className="flex flex-col lg:flex-row flex-1">
-          {activeTab === 'projects' ? (
+        <div className="flex flex-col lg:flex-row flex-1 relative">
+          
+          {/* === CROPPER OVERLAY (Shows when file selected) === */}
+          {rawHeroFile && (
+            <div className="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center p-4 md:p-8">
+               <div className="relative w-full max-w-xl h-[60vh] bg-zinc-900 rounded-3xl overflow-hidden border border-zinc-800 mb-6">
+                  <Cropper
+                    image={rawHeroFile}
+                    crop={crop}
+                    zoom={zoom}
+                    aspect={2 / 3} /* Aspect Ratio for Hero Card */
+                    onCropChange={setCrop}
+                    onCropComplete={onCropComplete}
+                    onZoomChange={setZoom}
+                  />
+               </div>
+               
+               <div className="w-full max-w-xl flex items-center gap-4 mb-6 px-4">
+                  <ZoomIn size={20} className="text-zinc-500" />
+                  <input 
+                    type="range" 
+                    value={zoom} 
+                    min={1} 
+                    max={3} 
+                    step={0.1} 
+                    onChange={(e) => setZoom(Number(e.target.value))} 
+                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer" 
+                  />
+               </div>
+
+               <div className="flex gap-4">
+                  <button onClick={cancelCrop} className="px-8 py-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-white font-mono uppercase tracking-wider text-xs transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={applyCrop} className="px-8 py-3 rounded-full bg-red-600 text-white font-dot uppercase tracking-wider flex items-center gap-2 hover:bg-red-700 transition-colors">
+                    <Check size={16} /> Apply Crop
+                  </button>
+               </div>
+            </div>
+          )}
+
+          {/* === TAB 1: PROJECTS VIEW === */}
+          {activeTab === 'projects' && (
             <>
-              {/* LEFT: FORM */}
+              {/* FORM */}
               <div className="p-8 w-full lg:w-1/3 border-b lg:border-b-0 lg:border-r border-zinc-800 bg-black">
                 <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-2">
                     <h4 className="font-mono text-xs text-zinc-500 uppercase tracking-widest">{editingId ? "Edit Entry" : "New Entry"}</h4>
@@ -283,7 +417,7 @@ const saveHeroImage = async () => {
                   </button>
                 </form>
               </div>
-              {/* RIGHT: LIST */}
+              {/* LIST */}
               <div className="p-8 w-full lg:w-2/3 bg-zinc-950 overflow-y-auto max-h-[85vh]">
                  <div className="grid sm:grid-cols-2 gap-4">
                     {projects.map(p => (
@@ -301,14 +435,32 @@ const saveHeroImage = async () => {
                  </div>
               </div>
             </>
-          ) : (
+          )}
+
+          {/* === TAB 2: SYSTEM IDENTITY (HERO IMAGE) === */}
+          {activeTab === 'system' && (
              <div className="w-full p-12 flex flex-col items-center justify-center bg-zinc-950">
                 <div className="max-w-md w-full text-center">
                    <h2 className="text-3xl font-dot text-white mb-8 uppercase">Update 3D Avatar</h2>
+                   
+                   {/* File Selector (Triggers Crop Modal) */}
                    <div className="relative group cursor-pointer mb-8 mx-auto w-64 h-80 rounded-[3rem] border-2 border-dashed border-zinc-700 hover:border-red-600 transition-colors bg-black overflow-hidden flex items-center justify-center">
-                      <input type="file" accept="image/*" onChange={(e) => handleImageSelect(e, 'hero')} className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer" />
-                      {heroPreview ? <img src={heroPreview} className="w-full h-full object-cover" /> : <Upload className="text-zinc-500" size={32} />}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={(e) => handleImageSelect(e, 'hero')} 
+                        className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer" 
+                      />
+                      {heroPreview ? (
+                         <img src={heroPreview} className="w-full h-full object-cover" />
+                      ) : (
+                         <div className="text-center">
+                            <Upload className="text-zinc-500 mb-2 mx-auto" size={32} />
+                            <span className="text-zinc-500 font-mono text-xs uppercase block">Click to Upload</span>
+                         </div>
+                      )}
                    </div>
+
                    <button onClick={saveHeroImage} disabled={heroLoading || !heroPreview} className="w-full py-4 bg-white text-black hover:bg-red-600 hover:text-white rounded-full font-bold font-dot uppercase tracking-wider transition-colors">
                       {heroLoading ? "Saving..." : "Save System Asset"}
                    </button>
