@@ -90,21 +90,27 @@ export default function AdminApp() {
     if (data) setHeroPreview(data.value);
   };
 
-  const handleLogin = async (e) => {
+const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
-    // METHOD 1: LOCAL PASSWORD (SIMPLE)
-    if (passwordInput === import.meta.env.VITE_ADMIN_PASSWORD) {
-       setIsAuthenticated(true);
-       setAuthError(false);
-       fetchProjects();
-       fetchHeroConfig();
-    } 
-    else {
-       setAuthError(true);
+
+    const adminEmail = "amalkphilip2005@gmail.com"; 
+
+    // This logs you into the Database properly
+    const { error } = await supabase.auth.signInWithPassword({
+      email: adminEmail,
+      password: passwordInput,
+    });
+
+    if (error) {
+      console.error("Login Error:", error.message);
+      setAuthError(true);
+    } else {
+      setIsAuthenticated(true);
+      setAuthError(false);
+      fetchProjects();
+      fetchHeroConfig();
     }
-    
     setLoading(false);
   };
 
