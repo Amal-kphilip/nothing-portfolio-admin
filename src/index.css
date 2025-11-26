@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fallback background styles */
+body {
+  background-color: #E5E5E5; 
+}
+.dark body {
+  background-color: #1A1A1A;
+}
